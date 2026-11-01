@@ -1,100 +1,60 @@
 # orcamento-api
 
-API REST de execução orçamentária que demonstra três padrões de projeto (Singleton, Strategy e Facade) em uma regra de negócio real: o cálculo de quanto reservar de um empenho muda conforme a fonte do recurso.
+> A Spring Boot REST API that shows three design patterns (Singleton, Strategy, Facade) solving a real rule: how much of a budget commitment to reserve depends on where the money comes from.
 
-Projeto do desafio de Padrões de Projeto do bootcamp de Java e IA (DIO / Itaú).
+Built for the Design Patterns challenge of the DIO Itaú "Java with AI" Bootcamp.
 
-## Sobre o projeto
+## Overview
+In public budgeting, a commitment (empenho) reserves money for a future expense. The amount actually reserved is not always what was requested. Funds from international sources, for example UN agencies in humanitarian operations, need a foreign exchange margin, while national funds are reserved in full. Instead of a growing chain of if/else, this project uses the Strategy pattern so each rule is its own class and the right one is picked at runtime.
 
-Um empenho é a reserva de recurso para uma despesa futura. Nem toda despesa reserva o mesmo valor que foi pedido: recurso de origem internacional (por exemplo, de agências da ONU, como em operações humanitárias) precisa de uma margem de câmbio, porque entra em moeda estrangeira. Recurso nacional reserva o valor integral.
+## Features
+- Register a budget commitment and reserve the correct amount based on the funding source.
+- Two interchangeable rules: national (full amount) and international (amount plus a 5% exchange margin).
+- List all registered commitments.
+- In-memory H2 database, no external setup required.
 
-Em vez de resolver isso com um `if/else` que cresce a cada nova fonte, o projeto usa o padrão Strategy: cada regra é uma classe própria, e o sistema escolhe a certa em tempo de execução.
+## My improvement
+The challenge allowed reproducing the reference lab or building something new. I built a new domain from scratch instead of cloning the sample "customer and address" API. The reserve calculation is a real Strategy (one rule per funding source), a selector lets Spring inject every rule as a list and choose the right one, and a Facade hides the whole flow (select the rule, calculate, timestamp, persist) behind a single method. The domain comes from my own background in budget operations.
 
-## Padrões de projeto aplicados
+## Design patterns
+- **Singleton:** the rules, the selector, the facade, the controller and the repository are Spring-managed beans, created once and reused across the application.
+- **Strategy:** `RegraReservaStrategy` has one implementation per funding source (`ReservaRecursoNacional`, `ReservaRecursoInternacional`), chosen at runtime by `SeletorRegraReserva`.
+- **Facade:** `OrcamentoFacade` exposes a single `registrarEmpenho` method that hides selection, calculation, timestamp and persistence.
 
-### Strategy
-Uma mesma tarefa (calcular quanto reservar) com implementações diferentes, uma por fonte de recurso. Todas seguem o mesmo contrato, a interface `RegraReservaStrategy`.
-- `ReservaRecursoNacional`: reserva o valor integral.
-- `ReservaRecursoInternacional`: reserva o valor mais 5% de margem de câmbio.
+## Tech stack
+Java 21, Spring Boot 3.3, Spring Web, Spring Data JPA, H2 (in-memory), Maven.
 
-Adicionar uma nova fonte no futuro é criar uma nova classe, sem tocar no resto do código.
-
-### Singleton
-As regras, o selector, a fachada, o controller e o repositório são componentes gerenciados pelo Spring (`@Component`, `@Service`, `@RestController`, `@Repository`). O framework cria uma única instância de cada um e a reutiliza por toda a aplicação. É o padrão Singleton na prática, resolvido pela injeção de dependências.
-
-### Facade
-A classe `OrcamentoFacade` expõe um método único, `registrarEmpenho`, que esconde os passos internos: escolher a regra pela fonte, calcular o valor reservado, carimbar a data e salvar. Quem chama não precisa conhecer selector, strategy nem repositório.
-
-## Fluxo de uma requisição
-
-```
-POST /empenhos (JSON)
-        |
-        v
-EmpenhoController  ->  OrcamentoFacade  ->  SeletorRegraReserva  ->  RegraReservaStrategy
-                            |                                         (Nacional | Internacional)
-                            v
-                     EmpenhoRepository  ->  Banco H2
-```
-
-## Tecnologias
-
-Java 21, Spring Boot 3.3, Spring Web, Spring Data JPA, banco H2 em memória, Maven.
-
-## Como rodar
-
-Pré-requisitos: Java 21 ou superior e Maven.
-
+## How to run
 ```bash
 mvn spring-boot:run
 ```
+The app starts on http://localhost:8080. H2 console at http://localhost:8080/h2-console (JDBC URL `jdbc:h2:mem:orcamento`, user `sa`, no password). Requires Java 21 or newer and Maven.
 
-A aplicação sobe em `http://localhost:8080`. O console do banco H2 fica em `http://localhost:8080/h2-console` (URL JDBC `jdbc:h2:mem:orcamento`, usuário `sa`, sem senha).
-
-## Como testar
-
-Registrar um empenho internacional (pede 100000, reserva 105000.00, os 5% de margem):
-
+## How to test the main flow
+International commitment (requests 100000, reserves 105000.00, the 5% margin):
 ```bash
 curl -X POST http://localhost:8080/empenhos \
   -H "Content-Type: application/json" \
-  -d '{"descricao":"Kits de abrigo","valorSolicitado":100000,"fonteRecurso":"INTERNACIONAL","naturezaDespesa":"Material de consumo","unidade":"Boa Vista"}'
+  -d '{"descricao":"Shelter kits","valorSolicitado":100000,"fonteRecurso":"INTERNACIONAL","naturezaDespesa":"Supplies","unidade":"Boa Vista"}'
 ```
-
-Registrar um empenho nacional (pede 100000, reserva 100000, integral):
-
+National commitment (requests 100000, reserves 100000, in full):
 ```bash
 curl -X POST http://localhost:8080/empenhos \
   -H "Content-Type: application/json" \
-  -d '{"descricao":"Diaria de servidor","valorSolicitado":100000,"fonteRecurso":"NACIONAL","naturezaDespesa":"Diarias","unidade":"Brasilia"}'
+  -d '{"descricao":"Per diem","valorSolicitado":100000,"fonteRecurso":"NACIONAL","naturezaDespesa":"Per diem","unidade":"Brasilia"}'
 ```
-
-Listar os empenhos registrados:
-
+List all commitments:
 ```bash
 curl http://localhost:8080/empenhos
 ```
 
-## Endpoints
+| Method | Route        | What it does                                  |
+|--------|--------------|-----------------------------------------------|
+| POST   | `/empenhos`  | Registers a commitment and reserves the value |
+| GET    | `/empenhos`  | Lists the registered commitments              |
 
-| Método | Rota         | O que faz                                  |
-|--------|--------------|--------------------------------------------|
-| POST   | `/empenhos`  | Registra um empenho e calcula a reserva    |
-| GET    | `/empenhos`  | Lista os empenhos registrados              |
+## What I learned
+How the Strategy pattern replaces branching with small, testable classes; how Spring turns dependency injection into the Singleton pattern for free; and how a Facade keeps the controller simple by hiding the moving parts behind one call.
 
-## Estrutura
-
-```
-src/main/java/com/krueger/orcamento/
-├── OrcamentoApiApplication.java   Ponto de entrada
-├── model/                         Empenho e FonteRecurso
-├── repository/                    EmpenhoRepository (Spring Data)
-├── strategy/                      Interface, as duas regras e o selector
-├── facade/                        OrcamentoFacade (a fachada)
-└── controller/                    EmpenhoController (API REST)
-```
-
-## Autor
-
-Carlos Eduardo Krueger
-[linkedin.com/in/carloseduardokrueger](https://www.linkedin.com/in/carloseduardokrueger)
+---
+**Carlos Eduardo Krueger** · [github.com/KruegerEngenheiro](https://github.com/KruegerEngenheiro) · [linkedin.com/in/carloseduardokrueger](https://linkedin.com/in/carloseduardokrueger) · Built during the DIO Itaú "Java with AI" Bootcamp.
